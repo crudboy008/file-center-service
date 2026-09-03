@@ -1,0 +1,10 @@
+{
+  "schema_version": "1.0",
+  "event_type": "document_ingestion_acceptance",
+  "status": "ACCEPTED",
+  "operation_id": "7a3e4e927b2146a2acbb6d8636b00431",
+  "document_id": "4b197c67b4d64352b5d78b5dd6719f93",
+  "task_id": "11111111111111111111111111111111",
+  "rejection_code": "INGRESS_FROZEN",
+  "decided_at": "2026-09-03T07:05:00Z"
+}

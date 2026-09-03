@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:java-card-service:rag:document-ingestion-result:1.0",
+  "title": "RAG to Java document ingestion final result event",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "event_type",
+    "status",
+    "operation_id",
+    "document_id",
+    "task_id",
+    "completed_at"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0"
+    },
+    "event_type": {
+      "const": "document_ingestion_result"
+    },
+    "status": {
+      "enum": ["READY", "FAILED"]
+    },
+    "operation_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "document_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[0-9a-f]{32}$",
+      "x-utf8-max-bytes": 64
+    },
+    "task_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{32}$"
+    },
+    "processing_batch_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{32}$"
+    },
+    "index_generation_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{32}$"
+    },
+    "failure_code": {
+      "type": "string",
+      "minLength": 1
+    },
+    "failure_stage": {
+      "type": "string",
+      "minLength": 1
+    },
+    "completed_at": {
+      "type": "string",
+      "format": "date-time",
+      "x-max-fractional-second-digits": 6
+    }
+  },
+  "dependentRequired": {
+    "processing_batch_id": ["index_generation_id"],
+    "index_generation_id": ["processing_batch_id"]
+  },
+  "oneOf": [
+    {
+      "properties": {
+        "status": {"const": "READY"}
+      },
+      "required": ["processing_batch_id", "index_generation_id"],
+      "not": {
+        "anyOf": [
+          {"required": ["failure_code"]},
+          {"required": ["failure_stage"]}
+        ]
+      }
+    },
+    {
+      "properties": {
+        "status": {"const": "FAILED"}
+      },
+      "required": ["failure_code", "failure_stage"]
+    }
+  ]
+}

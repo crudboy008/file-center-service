@@ -1,0 +1,16 @@
+{
+  "schema_version": "3.0",
+  "event_type": "document_submitted",
+  "operation_id": "7a3e4e927b2146a2acbb6d8636b00431",
+  "document_id": "4b197c67b4d64352b5d78b5dd6719f93",
+  "file_ref": "local-file-ref:v1:4b197c67b4d64352b5d78b5dd6719f93",
+  "expected_content_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  "knowledge_domain": "credit_card",
+  "business_document_class": "product_description",
+  "access_scopes": [
+    "branch:310000",
+    "role:customer-service"
+  ],
+  "submitted_by": "employee:10086",
+  "submitted_at": "2026-09-03T07:00:00Z"
+}

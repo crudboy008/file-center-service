@@ -1,0 +1,15 @@
+{
+  "schema_version": "2.0",
+  "event_type": "document_submitted",
+  "operation_id": "op-20260903-0001",
+  "document_id": "4b197c67b4d64352b5d78b5dd6719f93",
+  "file_ref": "local-file-ref:v1:4b197c67b4d64352b5d78b5dd6719f93",
+  "expected_content_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "knowledge_domain": "credit_card",
+  "business_document_class": "product_description",
+  "access_scopes": [
+    "cc_customer_service"
+  ],
+  "submitted_by": "java-file-service",
+  "submitted_at": "2026-09-03T05:00:00Z"
+}

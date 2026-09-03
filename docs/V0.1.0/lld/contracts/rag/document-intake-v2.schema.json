@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:java-card-service:rag:document-intake:2.0",
+  "title": "Java to RAG document intake event",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "event_type",
+    "operation_id",
+    "document_id",
+    "file_ref",
+    "expected_content_sha256",
+    "knowledge_domain",
+    "business_document_class",
+    "access_scopes",
+    "submitted_by",
+    "submitted_at"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "2.0"
+    },
+    "event_type": {
+      "const": "document_submitted"
+    },
+    "operation_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F]+$"
+    },
+    "document_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "pattern": "^[0-9a-f]{32}$",
+      "x-utf8-max-bytes": 64
+    },
+    "file_ref": {
+      "type": "string",
+      "minLength": 20,
+      "maxLength": 512,
+      "pattern": "^local-file-ref:v1:[0-9a-f]{32}$"
+    },
+    "expected_content_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "knowledge_domain": {
+      "const": "credit_card"
+    },
+    "business_document_class": {
+      "enum": [
+        "charter",
+        "cardholder_agreement",
+        "product_description",
+        "campaign_rules",
+        "qa_material",
+        "fee_description",
+        "announcement",
+        "short_form_document"
+      ]
+    },
+    "access_scopes": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 128,
+        "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F]+$",
+        "x-utf8-max-bytes": 128
+      },
+      "x-canonical-order": "ascending UTF-8 byte order"
+    },
+    "submitted_by": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128,
+      "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F]+$"
+    },
+    "submitted_at": {
+      "type": "string",
+      "format": "date-time",
+      "x-max-fractional-second-digits": 6
+    }
+  }
+}

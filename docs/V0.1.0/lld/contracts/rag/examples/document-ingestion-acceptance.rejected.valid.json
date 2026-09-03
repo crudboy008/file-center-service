@@ -1,0 +1,9 @@
+{
+  "schema_version": "1.0",
+  "event_type": "document_ingestion_acceptance",
+  "status": "REJECTED",
+  "operation_id": "op-20260903-0002",
+  "document_id": "5c297c67b4d64352b5d78b5dd6719f94",
+  "rejection_code": "INGRESS_FROZEN",
+  "decided_at": "2026-09-03T05:00:02Z"
+}

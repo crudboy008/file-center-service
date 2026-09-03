@@ -1,0 +1,10 @@
+{
+  "schema_version": "1.0",
+  "event_type": "document_ingestion_acceptance",
+  "status": "CONFLICT",
+  "operation_id": "op-20260903-0003",
+  "document_id": "6d397c67b4d64352b5d78b5dd6719f95",
+  "stored_event_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "incoming_event_hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+  "decided_at": "2026-09-03T05:00:03Z"
+}

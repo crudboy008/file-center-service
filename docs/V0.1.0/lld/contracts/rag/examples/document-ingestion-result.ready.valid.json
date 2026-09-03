@@ -1,0 +1,11 @@
+{
+  "schema_version": "1.0",
+  "event_type": "document_ingestion_result",
+  "status": "READY",
+  "operation_id": "op-20260903-0001",
+  "document_id": "4b197c67b4d64352b5d78b5dd6719f93",
+  "task_id": "0123456789abcdef0123456789abcdef",
+  "processing_batch_id": "11111111111111111111111111111111",
+  "index_generation_id": "22222222222222222222222222222222",
+  "completed_at": "2026-09-03T05:10:00Z"
+}
