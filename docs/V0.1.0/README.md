@@ -9,6 +9,8 @@
 
 V0.1.0 的实现范围是 Java 文件管理：PostgreSQL 保存文件元数据、系统生命周期、人工可用状态、状态历史和补偿事实，MinIO 保存文件字节。内容包括上传、分页查询、详情、流式下载、元数据修改、上传完整文件到新 Object Key 后切换引用、启停、状态历史、受控失败恢复和幂等删除。正文不提供在线增量编辑。
 
+目录边界：`E:\project\java-card-service` 是整体 Java 工程，当前 `file-center-service` 只是其中一个非独立运行的业务模块。整体采用 Maven 多模块模块化单体，由同级 `card-service-app` 提供唯一启动类、可执行 JAR 和共享运行配置；后续 Java 业务模块与文件模块同级，并装配进同一个 JVM。
+
 Java 与 Python RAG 之间只冻结对接合同和固定样例，包括按逻辑 `file_id` 排序的 `file_fact_changed v1` 和未来 Transactional Outbox 原子规则。本版不创建或运行 RocketMQ Producer/Consumer、Outbox/Inbox、Java RAG 状态表、Topic/Group、Python RAG/Agent、Spring Cloud Gateway、Nacos 或 Sentinel，也不执行 Java 与 Python 的真实联通。
 
 ## 2. 推荐阅读顺序
@@ -32,14 +34,14 @@ Java 与 Python RAG 之间只冻结对接合同和固定样例，包括按逻辑
 
 ### 3.3 ADR
 
-- [ADR-001 Java 文件中心采用模块化单体](adr/ADR-001-Java文件中心采用模块化单体.md)
+- [ADR-001 Java 整体工程采用多模块模块化单体](adr/ADR-001-Java整体工程采用多模块模块化单体.md)
 - [ADR-002 V0.1.0 延迟接入 RAG 并冻结合同](adr/ADR-002-V0.1.0延迟接入RAG并冻结合同.md)
 - [ADR-003 目标架构使用 Gateway 统一 Java 与 Python 入口](adr/ADR-003-目标架构使用Gateway统一Java与Python入口.md)
 - [ADR-004 PostgreSQL 与 MinIO 一致性策略](adr/ADR-004-PostgreSQL与MinIO一致性策略.md)
 
 ### 3.4 LLD
 
-- [LLD-001 文件管理模块详细设计](lld/LLD-001-文件管理模块详细设计.md)：Controller/Service/Mapper 包结构、双状态数据模型、状态 API、完整替换和错误映射。
+- [LLD-001 文件管理模块详细设计](lld/LLD-001-文件管理模块详细设计.md)：Controller/Service/Mapper 包结构、双状态数据模型、状态 API、完整替换和文件领域错误码。
 - [LLD-002 数据库与 MinIO 一致性设计](lld/LLD-002-数据库与MinIO一致性设计.md)：上传、替换、状态历史、受控恢复、删除、补偿和对账时序。
 - [LLD-003 RAG 预留对接合同](lld/LLD-003-RAG预留对接合同.md)：兼容入库请求、逻辑文件事实、接纳/最终结果、顺序幂等和未来 Outbox 原子边界。
 - [RAG 机器可读合同说明](lld/contracts/rag/RAG-CONTRACTS.md)：JSON Schema、固定正反样例和静态校验入口。
@@ -57,7 +59,7 @@ Java 与 Python RAG 之间只冻结对接合同和固定样例，包括按逻辑
 | 事项 | 本目录的设计事实来源 | 实施后的可执行事实来源 |
 |---|---|---|
 | 本版范围与验收 | SRS-001 | 验收计划和同一运行对象的测试报告 |
-| 系统边界与版本基线 | HLD-001、HLD-002 | 根 `pom.xml`、BOM 解析结果、锁定的容器 tag/digest 和运行配置 |
+| 系统边界与版本基线 | HLD-001、HLD-002 | 整体根 `E:\project\java-card-service\pom.xml`、BOM 解析结果、`card-service-app` 运行配置和锁定的容器 tag/digest |
 | 架构决策 | ADR-001～ADR-004 | 获批 ADR 及与其一致的实现 |
 | 文件接口、状态机与一致性 | LLD-001、LLD-002 | Java 源码、Flyway 迁移和集成测试 |
 | 文件 HTTP 外部契约 | `contracts/FILE-API-CONTRACT.md` | 版本化 OpenAPI 和接口契约测试 |
@@ -68,7 +70,8 @@ Markdown 版本表用于解释选择，不能约束 Maven 实际解析结果。�
 
 ## 5. 当前冻结的关键设计
 
-- Java 文件中心保持一个 Spring Boot 进程，代码主链路为 `Controller → Service → Mapper/DAO → PostgreSQL`；MinIO 通过 `ObjectStorageService` 接入，定时任务通过 `FileReconcileService` 执行补偿。
+- 整体 Java 工程只运行一个由 `card-service-app` 启动的 Spring Boot JVM；`file-center-service` 是普通业务模块，不含 `main`、独立运行配置、根 Wrapper 或整体 Compose。文件模块代码主链路为 `Controller → Service → Mapper/DAO → PostgreSQL`；MinIO 通过 `ObjectStorageService` 接入，定时任务通过 `FileReconcileService` 执行补偿。
+- 整体父 POM、BOM/插件版本、Wrapper 和 Compose 归 `java-card-service` 根；端口、DataSource、Jackson、日志、请求 ID、全局异常响应、OpenAPI 聚合和 Profile 归 `card-service-app`；文件模块只保留文件专属配置类型、校验、领域异常/错误码和业务资源。
 - 文件生命周期：`UPLOADING → ACTIVE`、`UPLOADING → FAILED`、`ACTIVE → REPLACING → ACTIVE`、`REPLACING → FAILED`、`ACTIVE → DELETING → DELETED`、`DELETING → FAILED`。
 - 可用状态独立为 `ENABLED/DISABLED`；只有 `ACTIVE + ENABLED` 有效可用。启停仅允许生命周期为 `ACTIVE`，状态值与历史同 PostgreSQL 事务提交。
 - 正文只允许上传完整文件替换，保持逻辑 `file_id` 和原可用状态，生成新 `reference_id/object_key`；不提供在线增量编辑。
@@ -88,6 +91,7 @@ Markdown 版本表用于解释选择，不能约束 Maven 实际解析结果。�
 - 当前机器的 Java、Javac 和 Maven 绑定并非同一目标 JDK；实施前必须统一到 HLD-001 的 JDK 基线。
 - Python 必须在后续版本实现 `file_fact_changed` 严格模型、按 `file_id/file_version` 幂等应用、替换退役旧文档，以及 acceptance 严格模型、同业务事务 Outbox 和固定向量测试，Java 才能进入真实接入。
 - JSON Schema 中的 `x-utf8-max-bytes`、`x-max-fractional-second-digits` 和 `x-canonical-order` 是扩展约束，通用校验器可能忽略；后续 Java/Python 合同测试必须显式覆盖。
+- 当前 `.git` 根位于 `file-center-service`，而整体 Maven 根 POM 和 `card-service-app` 尚不存在；整体工程文件如何纳入版本控制需要在代码实施前单独确定，不能把它们错误放进当前模块规避该问题。
 
 ## 7. 证据边界
 

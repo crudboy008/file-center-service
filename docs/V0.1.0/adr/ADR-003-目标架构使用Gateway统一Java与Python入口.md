@@ -23,16 +23,16 @@ Python API 进入交付范围时，新增独立 Spring Cloud Gateway 进程作�
 ```mermaid
 flowchart LR
     F[前端] -->|单一 API 域名| G[Spring Cloud Gateway]
-    G -->|/api/v1/files/**| J[Java 文件中心]
+    G -->|/api/v1/files/**| J[Java 卡业务应用<br/>含 file-center-service]
     G -->|/api/v1/rag/**| R[Python RAG/Agent]
     G -->|/api/v1/agent/**| R
 ```
 
-Gateway 可以代理任何遵循 HTTP、SSE 或 WebSocket 的后端，不要求下游使用 Java。Gateway 与 Java 文件中心是两个独立进程；Gateway 基于 WebFlux，不嵌入 Spring MVC 文件应用。
+Gateway 可以代理任何遵循 HTTP、SSE 或 WebSocket 的后端，不要求下游使用 Java。Gateway 与 Java 卡业务应用是两个独立进程；Java 卡业务应用内部的文件模块和后续 Java 业务模块仍共享一个 Spring Boot JVM。Gateway 基于 WebFlux，不嵌入 Java MVC 业务应用。
 
 ### 2.2 V0.1.0 行为
 
-V0.1.0 不创建或启动 Gateway。前端/测试客户端直接访问 Java 文件中心，理由是本期只有一个已实现的 HTTP 后端。Gateway 3.1.4 仅冻结为目标架构版本。
+V0.1.0 不创建或启动 Gateway。前端/测试客户端直接访问 `card-service-app` 暴露的文件接口，理由是本期只有一个 Java HTTP 运行宿主。Gateway 3.1.4 仅冻结为目标架构版本。
 
 ### 2.3 路由职责
 
@@ -73,7 +73,7 @@ V0.1.0 不创建或启动 Gateway。前端/测试客户端直接访问 Java 文�
 
 - 目标系统有两个对前端提供 API 的独立服务，统一入口可减少前端服务地址、跨域和 Token 处理分叉。
 - 路由级限流、请求 ID、统一错误边界和后端地址隐藏有明确入口职责。
-- 保留 Java 文件中心和 Python RAG/Agent 的独立部署、语言和扩缩容边界。
+- 保留 Java 卡业务应用和 Python RAG/Agent 的独立部署、语言和扩缩容边界；Java 内部业务模块不因此拆成独立微服务。
 
 以上是基于已确认拓扑的设计推理。具体吞吐收益、资源成本和延迟开销尚未测量。
 
@@ -98,7 +98,7 @@ V0.1.0 不创建或启动 Gateway。前端/测试客户端直接访问 Java 文�
 
 否决为目标方案：会把跨域、Token、错误处理和环境地址选择分散到前端。它只作为 V0.1.0 单后端阶段的暂时运行方式。
 
-### 7.2 把 Gateway 嵌入 Java MVC 文件应用
+### 7.2 把 Gateway 嵌入 Java MVC 业务应用
 
 否决原因：混合响应式 Gateway 与 MVC 业务进程，使入口故障和文件业务故障共享进程，也破坏独立部署边界。
 

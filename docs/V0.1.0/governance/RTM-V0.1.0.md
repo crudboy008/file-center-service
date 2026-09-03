@@ -34,7 +34,7 @@
 | 核对 ID | 核对内容 | 最低证据 |
 |---|---|---|
 | `VC-DB-001` | 检查 Flyway/真实 Schema 不含文件 BLOB；验证唯一约束、生命周期/可用状态约束、状态历史外键和对象引用约束生效 | E2 |
-| `VC-CONFIG-001` | 检查数据库和 MinIO 凭据只由外部配置注入，并对源码、配置样例、日志和响应做秘密扫描 | E1；启动行为需 E2 |
+| `VC-CONFIG-001` | 检查数据库和 MinIO 运行值由 `card-service-app`/环境注入，凭据只来自环境；确认 `file-center-service` 没有独立整体 `application*.yml`，并对源码、配置样例、日志和响应做秘密扫描 | E1；启动行为需 E2 |
 | `VC-CONFIG-002` | 读回文件/请求大小、分页上限、媒体类型、补偿周期、批量、重试和退避的实际配置 | E2 |
 | `VC-PERF-001` | 同时检查上传和下载代码路径及运行测量，确认不存在任意大小整文件 `byte[]` 聚合 | E2 |
 | `VC-PERF-002` | 超限上传必须在完成写入前返回 `413 FILE_TOO_LARGE`，且无 `ACTIVE` 记录或不可识别对象 | E2/E3 |
@@ -43,8 +43,8 @@
 | `VC-OBS-001` | 对成功、业务失败和基础设施失败请求，核对响应/日志的同一 `request_id` 及脱敏字段 | E2/E3 |
 | `VC-OBS-002` | 分别探测 PostgreSQL 和 MinIO 健康状态，确认可区分且不回显凭据 | E2/E3 |
 | `VC-OBS-003` | 核对补偿任务待处理、成功和失败指标；该项对应 SHOULD | E2 |
-| `VC-ARCH-001` | 检查 `FileController/FileStatusController` 只调用各自 Service；Service 使用 Mapper 和 `ObjectStorageService`；MyBatis-Plus 类型只在 Mapper/数据访问代码；MinIO SDK 类型只在 `storage/minio`；Job 只调用 `FileReconcileService`；不存在 Controller 直连 Mapper/MinIO Client | E1 |
-| `VC-BASE-001` | 核对 HLD 版本与 POM/BOM、Wrapper、Compose、Flyway 的实际锁定值和状态 | E1/E2 |
+| `VC-ARCH-001` | 检查整体根是 Maven 聚合工程，只有 `card-service-app` 含 `main`、Spring Boot repackage、整体运行配置和全局 `ControllerAdvice`；`file-center-service` 是普通 JAR，只定义文件领域异常/错误码且不反向依赖启动宿主；再检查 Controller → Service → Mapper/DAO、MinIO SDK 隔离及 Job → `FileReconcileService` | E1 |
+| `VC-BASE-001` | 核对 HLD 版本与整体根父 POM/BOM、Wrapper、整体 Compose、启动宿主配置、文件模块 Flyway 的实际锁定值和状态，确认没有在 `file-center-service` 重复建立整体基线 | E1/E2 |
 | `VC-SCOPE-001` | 在不启动 Gateway、Nacos、RocketMQ、Python 和向量数据库时完成 Java 文件验收 | E2/E3 |
 
 ## 3. 功能需求
@@ -70,10 +70,10 @@
 | `FR-FILE-017` | MUST | 生命周期/可用状态历史分页 | LLD-001 §4.3、§5.10；HTTP §3、§4 | `AC-FILE-017` | 直接 | E2 | `DESIGN_MAPPED / NOT_RUN` |
 | `FR-FILE-018` | MUST | 受控 FAILED 恢复且禁止任意状态赋值 | LLD-001 §5.9、§7；LLD-002 §10；HTTP §5.1 | `AC-FILE-018` | 直接 | E3 | `DESIGN_MAPPED / NOT_RUN` |
 | `FR-FILE-019` | MUST | 无在线正文编辑，只上传完整文件替换 | LLD-001 §5.6、§5.11；LLD-002 §8；HTTP §3、§5 | `AC-FILE-008`、`014`、`019` | 直接 | E2/E3 | `DESIGN_MAPPED / NOT_RUN` |
-| `FR-CFG-001` | MUST | 数据库配置和密码外部注入 | HLD-002 §5；`VC-CONFIG-001` | `AC-FILE-013` + `VC-CONFIG-001` | 直接+补充 | E1/E3 | `DESIGN_MAPPED / NOT_RUN` |
-| `FR-CFG-002` | MUST | MinIO 配置外部注入且秘密不泄露 | HLD-002 §5；HTTP §2、§7 | `AC-FILE-013` + `VC-CONFIG-001` | 直接+补充 | E1/E3 | `DESIGN_MAPPED / NOT_RUN` |
-| `FR-CFG-003` | MUST | 文件/请求上限和类型策略可配置 | LLD-001 §9；`VC-CONFIG-002` | `AC-FILE-003`、`004` + `VC-CONFIG-002`、`VC-PERF-002` | 直接+补充 | E2/E3 | `OPEN_BASELINE / NOT_RUN` |
-| `FR-CFG-004` | MUST | 补偿周期、批量、重试和退避可配置 | LLD-001 §9；LLD-002 §5、§10；SRS §15；`VC-CONFIG-002` | `AC-FILE-011`、`012` + `VC-CONFIG-002` | 直接+补充 | E3 | `OPEN_BASELINE / NOT_RUN` |
+| `FR-CFG-001` | MUST | DataSource 由启动宿主/环境注入，文件模块不维护独立运行配置 | HLD-002 §5；`VC-CONFIG-001` | `AC-FILE-013` + `VC-CONFIG-001` | 直接+补充 | E1/E3 | `DESIGN_MAPPED / NOT_RUN` |
+| `FR-CFG-002` | MUST | MinIO 运行值由启动宿主/环境注入且秘密不泄露 | HLD-002 §5；HTTP §2、§7 | `AC-FILE-013` + `VC-CONFIG-001` | 直接+补充 | E1/E3 | `DESIGN_MAPPED / NOT_RUN` |
+| `FR-CFG-003` | MUST | 文件专属上限和类型配置由模块定义、宿主供值 | LLD-001 §9；`VC-CONFIG-002` | `AC-FILE-003`、`004` + `VC-CONFIG-002`、`VC-PERF-002` | 直接+补充 | E2/E3 | `OPEN_BASELINE / NOT_RUN` |
+| `FR-CFG-004` | MUST | 文件补偿配置由模块定义、宿主供值 | LLD-001 §9；LLD-002 §5、§10；SRS §15；`VC-CONFIG-002` | `AC-FILE-011`、`012` + `VC-CONFIG-002` | 直接+补充 | E3 | `OPEN_BASELINE / NOT_RUN` |
 
 ## 4. RAG 契约需求
 
@@ -117,8 +117,8 @@
 | `NFR-OBS-002` | MUST | 文件操作和补偿记录稳定诊断字段 | HLD-002 §8；LLD-002 §5、§10 | `AC-FILE-008`、`010`～`013` + `VC-OBS-001` | 直接+补充 | E3 | `DESIGN_MAPPED / NOT_RUN` |
 | `NFR-OBS-003` | MUST | PostgreSQL/MinIO 健康状态可区分 | HLD-002 §6；`VC-OBS-002` | `AC-FILE-013` + `VC-OBS-002` | 直接+补充 | E3 | `DESIGN_MAPPED / NOT_RUN` |
 | `NFR-OBS-004` | SHOULD | 补偿任务暴露可测量指标 | `VC-OBS-003` | `VC-OBS-003` | 补充 | E2 | `DESIGN_MAPPED / NOT_RUN` |
-| `NFR-MAIN-001` | MUST | 三层依赖方向与 MinIO SDK 隔离 | HLD-001 §4.1；LLD-001 §3、§6 | `VC-ARCH-001` | 补充 | E1 | `DESIGN_MAPPED / NOT_RUN` |
-| `NFR-MAIN-002` | MUST | 版本由 HLD 管理并由构建/部署强制 | HLD-001 §7、§8 | `VC-BASE-001` | 补充 | E1/E2 | `OPEN_BASELINE / NOT_RUN` |
+| `NFR-MAIN-001` | MUST | 多模块单 JVM、唯一启动宿主、全局异常映射及文件模块三层边界 | HLD-001 §4.1；ADR-001 §2；LLD-001 §3、§6 | `VC-ARCH-001` | 补充 | E1 | `DESIGN_MAPPED / NOT_RUN` |
+| `NFR-MAIN-002` | MUST | 整体根统一版本/构建/编排，宿主统一运行配置 | HLD-001 §7、§8；HLD-002 §5 | `VC-BASE-001` | 补充 | E1/E2 | `OPEN_BASELINE / NOT_RUN` |
 | `NFR-MAIN-003` | MUST | RAG Schema 显式版本并拒绝未知版本、重复键和额外字段 | LLD-003 §4～§6、§11、§12、§14；RAG Schema | `AC-RAG-001`～`004`、`007`、`008` | 直接 | E1 | `STATIC_VERIFIED / RUNTIME_NOT_RUN` |
 | `NFR-MAIN-004` | MUST | Java 验收不依赖后续组件 | HLD-002 §4；`VC-SCOPE-001` | `AC-FILE-001`～`019` + `VC-SCOPE-001` | 直接+补充 | E2/E3 | `DESIGN_MAPPED / NOT_RUN` |
 
