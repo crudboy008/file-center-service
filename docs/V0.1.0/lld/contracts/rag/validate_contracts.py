@@ -21,6 +21,7 @@ SCHEMAS = {
     "intake": ROOT / "document-intake-v2.schema.json",
     "acceptance": ROOT / "document-ingestion-acceptance-v1.schema.json",
     "result": ROOT / "document-ingestion-result-v1.schema.json",
+    "file_fact": ROOT / "file-fact-changed-v1.schema.json",
 }
 
 
@@ -72,8 +73,29 @@ StrictDraft202012Validator = validators.extend(
 )
 
 
+class DuplicateKeyError(ValueError):
+    pass
+
+
+def reject_duplicate_keys(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise DuplicateKeyError("duplicate JSON key: {0}".format(key))
+        result[key] = value
+    return result
+
+
+def reject_non_json_number(value):
+    raise ValueError("non-JSON numeric constant: {0}".format(value))
+
+
 def load_json(path):
-    return json.loads(path.read_text(encoding="utf-8"))
+    return json.loads(
+        path.read_text(encoding="utf-8"),
+        object_pairs_hook=reject_duplicate_keys,
+        parse_constant=reject_non_json_number,
+    )
 
 
 def schema_name_for_example(path):
@@ -84,6 +106,8 @@ def schema_name_for_example(path):
         return "acceptance"
     if name.startswith("document-ingestion-result."):
         return "result"
+    if name.startswith("file-fact-changed."):
+        return "file_fact"
     raise AssertionError("Unmapped example: {0}".format(name))
 
 
@@ -125,15 +149,40 @@ def verify_manifest():
 
 
 def verify_cross_field_rules(schema_name, path, instance):
-    if schema_name != "intake":
-        return
-    expected_file_ref = "local-file-ref:v1:{0}".format(instance["document_id"])
-    if instance["file_ref"] != expected_file_ref:
-        raise AssertionError(
-            "Intake file_ref must contain the same reference_id as document_id: {0}".format(
-                path.name
+    if schema_name == "intake":
+        expected_file_ref = "local-file-ref:v1:{0}".format(instance["document_id"])
+        if instance["file_ref"] != expected_file_ref:
+            raise ValidationError(
+                "intake file_ref must contain the same reference_id as document_id"
             )
+        return
+
+    if schema_name != "file_fact":
+        return
+
+    if "file_ref" in instance:
+        expected_file_ref = "local-file-ref:v1:{0}".format(instance["document_id"])
+        if instance["file_ref"] != expected_file_ref:
+            raise ValidationError(
+                "file fact file_ref must contain the same reference_id as document_id"
+            )
+
+    if (
+        instance.get("change_type") == "CONTENT_REPLACED"
+        and instance.get("previous_document_id") == instance.get("document_id")
+    ):
+        raise ValidationError(
+            "CONTENT_REPLACED previous_document_id must differ from document_id"
         )
+
+
+def validation_errors(validator, schema_name, path, instance):
+    errors = list(validator.iter_errors(instance))
+    try:
+        verify_cross_field_rules(schema_name, path, instance)
+    except ValidationError as error:
+        errors.append(error)
+    return errors
 
 
 def run():
@@ -152,13 +201,25 @@ def run():
     for path in valid_paths:
         schema_name = schema_name_for_example(path)
         instance = load_json(path)
-        validator_by_name[schema_name].validate(instance)
-        verify_cross_field_rules(schema_name, path, instance)
+        errors = validation_errors(
+            validator_by_name[schema_name], schema_name, path, instance
+        )
+        if errors:
+            raise AssertionError(
+                "Valid example was rejected: {0}: {1}".format(
+                    path.name, errors[0].message
+                )
+            )
 
     for path in invalid_paths:
         schema_name = schema_name_for_example(path)
-        instance = load_json(path)
-        errors = list(validator_by_name[schema_name].iter_errors(instance))
+        try:
+            instance = load_json(path)
+        except (json.JSONDecodeError, DuplicateKeyError, ValueError):
+            continue
+        errors = validation_errors(
+            validator_by_name[schema_name], schema_name, path, instance
+        )
         if not errors:
             raise AssertionError("Invalid example was accepted: {0}".format(path.name))
 

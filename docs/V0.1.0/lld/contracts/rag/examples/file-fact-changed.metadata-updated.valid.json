@@ -1,0 +1,18 @@
+{
+  "availability_status": "ENABLED",
+  "change_type": "METADATA_UPDATED",
+  "changed_at": "2026-09-03T08:20:00Z",
+  "content_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "display_name": "2026版信用卡产品说明.pdf",
+  "document_id": "319f011f196e49a28583b904b90e0b1e",
+  "event_type": "file_fact_changed",
+  "file_id": "5ca94af456ee42e28729cd0555a28d01",
+  "file_ref": "local-file-ref:v1:319f011f196e49a28583b904b90e0b1e",
+  "file_version": 6,
+  "lifecycle_status": "ACTIVE",
+  "media_type": "application/pdf",
+  "operation_id": "33333333333333333333333333333333",
+  "original_name": "信用卡产品说明.pdf",
+  "schema_version": "1.0",
+  "size_bytes": 1048576
+}

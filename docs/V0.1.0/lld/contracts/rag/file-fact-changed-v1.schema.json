@@ -1,0 +1,319 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:java-card-service:rag:file-fact-changed:1.0",
+  "title": "Java to RAG logical file fact changed event",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "event_type",
+    "operation_id",
+    "change_type",
+    "file_id",
+    "file_version",
+    "lifecycle_status",
+    "availability_status",
+    "original_name",
+    "display_name",
+    "changed_at"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "1.0"
+    },
+    "event_type": {
+      "const": "file_fact_changed"
+    },
+    "operation_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{32}$"
+    },
+    "change_type": {
+      "enum": [
+        "CREATED",
+        "CONTENT_REPLACED",
+        "METADATA_UPDATED",
+        "ENABLED",
+        "DISABLED",
+        "DELETE_REQUESTED",
+        "DELETED",
+        "FAILED"
+      ]
+    },
+    "file_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{32}$"
+    },
+    "file_version": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "document_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{32}$"
+    },
+    "previous_document_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{32}$"
+    },
+    "file_ref": {
+      "type": "string",
+      "pattern": "^local-file-ref:v1:[0-9a-f]{32}$"
+    },
+    "lifecycle_status": {
+      "enum": [
+        "ACTIVE",
+        "DELETING",
+        "DELETED",
+        "FAILED"
+      ]
+    },
+    "availability_status": {
+      "enum": [
+        "ENABLED",
+        "DISABLED"
+      ]
+    },
+    "original_name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255,
+      "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F]+$"
+    },
+    "display_name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255,
+      "pattern": "^(?!\\s)(?!.*\\s$)[^\\u0000-\\u001F\\u007F]+$"
+    },
+    "media_type": {
+      "enum": [
+        "application/pdf",
+        "application/msword",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "application/vnd.ms-excel",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "image/jpeg",
+        "image/png"
+      ]
+    },
+    "size_bytes": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "content_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "changed_at": {
+      "type": "string",
+      "format": "date-time",
+      "x-max-fractional-second-digits": 6
+    }
+  },
+  "$defs": {
+    "contentFact": {
+      "required": [
+        "document_id",
+        "file_ref",
+        "media_type",
+        "size_bytes",
+        "content_sha256"
+      ]
+    },
+    "withoutPreviousDocument": {
+      "not": {
+        "required": [
+          "previous_document_id"
+        ]
+      }
+    },
+    "withoutReadableContent": {
+      "not": {
+        "anyOf": [
+          {
+            "required": [
+              "file_ref"
+            ]
+          },
+          {
+            "required": [
+              "media_type"
+            ]
+          },
+          {
+            "required": [
+              "size_bytes"
+            ]
+          },
+          {
+            "required": [
+              "content_sha256"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "oneOf": [
+    {
+      "properties": {
+        "change_type": {
+          "const": "CREATED"
+        },
+        "lifecycle_status": {
+          "const": "ACTIVE"
+        },
+        "availability_status": {
+          "const": "ENABLED"
+        }
+      },
+      "allOf": [
+        {
+          "$ref": "#/$defs/contentFact"
+        },
+        {
+          "$ref": "#/$defs/withoutPreviousDocument"
+        }
+      ]
+    },
+    {
+      "properties": {
+        "change_type": {
+          "const": "CONTENT_REPLACED"
+        },
+        "lifecycle_status": {
+          "const": "ACTIVE"
+        }
+      },
+      "required": [
+        "previous_document_id"
+      ],
+      "allOf": [
+        {
+          "$ref": "#/$defs/contentFact"
+        }
+      ]
+    },
+    {
+      "properties": {
+        "change_type": {
+          "const": "METADATA_UPDATED"
+        },
+        "lifecycle_status": {
+          "const": "ACTIVE"
+        }
+      },
+      "allOf": [
+        {
+          "$ref": "#/$defs/contentFact"
+        },
+        {
+          "$ref": "#/$defs/withoutPreviousDocument"
+        }
+      ]
+    },
+    {
+      "properties": {
+        "change_type": {
+          "const": "ENABLED"
+        },
+        "lifecycle_status": {
+          "const": "ACTIVE"
+        },
+        "availability_status": {
+          "const": "ENABLED"
+        }
+      },
+      "allOf": [
+        {
+          "$ref": "#/$defs/contentFact"
+        },
+        {
+          "$ref": "#/$defs/withoutPreviousDocument"
+        }
+      ]
+    },
+    {
+      "properties": {
+        "change_type": {
+          "const": "DISABLED"
+        },
+        "lifecycle_status": {
+          "const": "ACTIVE"
+        },
+        "availability_status": {
+          "const": "DISABLED"
+        }
+      },
+      "allOf": [
+        {
+          "$ref": "#/$defs/contentFact"
+        },
+        {
+          "$ref": "#/$defs/withoutPreviousDocument"
+        }
+      ]
+    },
+    {
+      "properties": {
+        "change_type": {
+          "const": "DELETE_REQUESTED"
+        },
+        "lifecycle_status": {
+          "const": "DELETING"
+        }
+      },
+      "required": [
+        "document_id"
+      ],
+      "allOf": [
+        {
+          "$ref": "#/$defs/withoutPreviousDocument"
+        },
+        {
+          "$ref": "#/$defs/withoutReadableContent"
+        }
+      ]
+    },
+    {
+      "properties": {
+        "change_type": {
+          "const": "DELETED"
+        },
+        "lifecycle_status": {
+          "const": "DELETED"
+        }
+      },
+      "required": [
+        "document_id"
+      ],
+      "allOf": [
+        {
+          "$ref": "#/$defs/withoutPreviousDocument"
+        },
+        {
+          "$ref": "#/$defs/withoutReadableContent"
+        }
+      ]
+    },
+    {
+      "properties": {
+        "change_type": {
+          "const": "FAILED"
+        },
+        "lifecycle_status": {
+          "const": "FAILED"
+        }
+      },
+      "allOf": [
+        {
+          "$ref": "#/$defs/withoutPreviousDocument"
+        },
+        {
+          "$ref": "#/$defs/withoutReadableContent"
+        }
+      ]
+    }
+  ]
+}

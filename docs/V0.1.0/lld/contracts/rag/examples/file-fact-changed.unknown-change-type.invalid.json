@@ -1,0 +1,13 @@
+{
+  "availability_status": "ENABLED",
+  "change_type": "RENAMED",
+  "changed_at": "2026-09-03T08:00:00Z",
+  "display_name": "信用卡产品说明.pdf",
+  "event_type": "file_fact_changed",
+  "file_id": "5ca94af456ee42e28729cd0555a28d01",
+  "file_version": 2,
+  "lifecycle_status": "ACTIVE",
+  "operation_id": "11111111111111111111111111111111",
+  "original_name": "信用卡产品说明.pdf",
+  "schema_version": "1.0"
+}

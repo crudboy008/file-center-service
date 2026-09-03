@@ -3,16 +3,16 @@
 - 文档版本：V0.1.0
 - 状态：`DRAFT_FOR_USER_REVIEW / NOT_APPROVED_FOR_IMPLEMENTATION`
 - 日期：2026-09-03
-- Java 角色：未来的文档入库事件生产者、入库结果消费者
+- Java 角色：未来的文档入库/逻辑文件事实事件生产者、入库结果消费者
 - Python 角色：文档入库事件消费者、入库结果生产者
 
 ## 1. 本期范围与证据等级
 
-V0.1.0 只实现 Java 文件管理，本文只冻结后续联调所需的 Topic、Tag、Key、MessageGroup、JSON Body、MinIO 引用、幂等和失败边界。
+V0.1.0 只实现 Java 文件管理，本文只冻结后续联调所需的 Topic、Tag、Key、MessageGroup、JSON Body、MinIO 引用、逻辑文件状态、顺序、幂等、未来 Outbox 原子性和失败边界。
 
 V0.1.0 明确不做：
 
-- 不创建 `file-center-rag` 的 Producer 或 Consumer；
+- 不创建 `file-center-rag` 的 Producer、Consumer、RAG delivery operation、Outbox 或 Inbox；
 - 不引入或启动 RocketMQ；
 - 不创建 intake/result Topic 和 Consumer Group；
 - 不向 Python 发送消息；
@@ -57,14 +57,14 @@ RAG 源码绝对路径：`E:\mytest\szrcb_card_rag`
 ```mermaid
 flowchart LR
     F[Java File Module] -->|只读文件事实| R[未来 Java RAG Module]
-    R -->|document_submitted| T1[(card_rag_doc_intake)]
+    R -->|document_submitted<br/>file_fact_changed| T1[(card_rag_doc_intake)]
     T1 --> P[Python RAG]
     P -->|file_ref| M[(Shared MinIO)]
     P -->|document_ingestion_result| T2[(card_rag_document_result)]
     T2 --> R
 ```
 
-文件正文不放进 MQ Body。Java 与 Python 通过受控 `file_ref` 指向同一个 MinIO 对象；`expected_content_sha256` 用于发现对象被替换、错指或传输内容不一致。
+文件正文不放进 MQ Body。Java 与 Python 通过受控 `file_ref` 指向同一个 MinIO 对象；SHA-256 用于发现对象被替换、错指或传输内容不一致。`document_submitted` 表达一次内容入库请求，`file_fact_changed` 表达同一逻辑 `file_id` 的当前版本、启停和删除事实。
 
 ## 3. 版本与资源合同
 
@@ -74,15 +74,16 @@ flowchart LR
 | Java SDK | `org.apache.rocketmq:rocketmq-client-java:5.0.5` | 后续直接使用，不用 4.x Stream Starter |
 | Python SDK | `rocketmq-python-client==5.1.1` | 当前 `pyproject.toml` 第 28 行、`uv.lock` 第 266 行 |
 | Intake Topic | `card_rag_doc_intake` | 当前 RAG `config.py` 固定默认值 |
+| File fact Tag | `file_fact_changed` | 本项目新增目标合同；复用 Intake Topic，按逻辑 `file_id` 分组 |
 | Python Consumer Group | `card_rag_doc_intake_cg` | 当前 RAG `config.py` 固定默认值 |
 | Result Topic | `card_rag_document_result` | 当前 RAG `config.py` 默认值；未来同时承载 acceptance 与 ingestion result 两个 Tag |
 | Java Result Consumer Group | `java_file_center_rag_result_cg` | Java 新资源；当前 RAG 源码没有该常量 |
 
-两个 Topic 均按 FIFO 资源初始化：intake 以 `document_id` 为顺序组，result 以 `operation_id` 为顺序组。当前脚本只初始化 intake Topic/Group；result Topic 和 Java Group 是明确的后续资源缺口，V0.1.0 不补建。
+两个 Topic 均按 FIFO 资源初始化：`document_submitted` 以 `document_id` 为顺序组，`file_fact_changed` 以 `file_id` 为顺序组，result 以 `operation_id` 为顺序组。当前脚本只初始化 intake Topic/Group，当前 Python Consumer 也只订阅旧 Tag；新 Tag 消费、result Topic 和 Java Group 都是明确的后续资源缺口，V0.1.0 不补建。
 
 平台必须在部署阶段创建和读回 Topic/Group 属性。业务进程不得在启动时偷偷创建或修改 MQ 元数据。当前 intake 脚本也明确采用这一原则：`init-mq-metadata.ps1` 第 1-3 行。
 
-## 4. Java → Python：文档接纳事件
+## 4. Java → Python：兼容文档接纳事件
 
 ### 4.1 RocketMQ Envelope
 
@@ -170,7 +171,7 @@ short_form_document
 
 源码依据：`task_ledger.py` 第 180-223 行；`intake.py` 第 26-28、45-76 行；`adapters/mq/consumer.py` 第 125-190 行。
 
-因此 Java 必须把完整发送 Body 冻结在 Outbox 中。重发时复用同一 `operation_id` 和逐字相同的业务事实，禁止根据“当前文件名”等后来变化重新拼 Body。文件内容替换会生成新的 `reference_id/document_id`，避免触发同一 `document_id` 二次注册冲突。
+因此未来 Java 必须把完整发送 Body 冻结在 Outbox 中。重发时复用同一 `operation_id` 和逐字相同的业务事实，禁止根据“当前文件名”等后来变化重新拼 Body。文件内容替换会生成新的 `reference_id/document_id`，避免触发同一 `document_id` 二次注册冲突。V0.1.0 不创建该 Outbox。
 
 ## 5. Python → Java：接纳决定事件（真实接入前必须新增）
 
@@ -364,10 +365,12 @@ Java 结果消费者应先严格解析并规范化，再计算哈希并与 Rocke
 ```text
 file_ref = local-file-ref:v1:<reference_id>
 reference_id = object_key = document_id
-file_id = Java 逻辑文件 ID，不进入当前 RAG 消息
+file_id = Java 逻辑文件 ID，不进入旧 document_submitted/result；进入新 file_fact_changed
 ```
 
 `reference_id` 必须非空，不得包含 `/`、`\`，不得为 `.` 或 `..`。`file_ref` 不携带 Endpoint、Bucket、Access Key、Secret Key、预签名 URL 或原始文件字节。
+
+旧 `document_submitted v2` 的 `document_id` 等于内容 `reference_id`，替换后会变化；旧 Envelope 又按 `document_id` 分组。因此它既不能把替换前后归到同一顺序组，也不能告诉 RAG 哪个旧文档应退出当前集合。第 14～16 节的新合同专门补齐这一缺口，旧严格 Schema 不原地加字段。
 
 ### 8.2 对象事实
 
@@ -401,30 +404,34 @@ LOCAL_FILE_WRITE_FAILED
 
 ## 9. Java 侧未来持久化状态（本期不建表）
 
-### 9.1 `rag_ingestion_operation`
+### 9.1 `rag_delivery_operation`
 
 ```text
-CREATED -> OUTBOX_PENDING -> WAITING_ACCEPTANCE -> ACCEPTED -> WAITING_RESULT -> READY
-                                               \-> REJECTED                   \-> FAILED
-                                               \-> ACCEPTANCE_CONFLICT
-                                                                              \-> RESULT_CONFLICT
+INGESTION: NEW -> OUTBOX_PENDING -> WAITING_ACCEPTANCE -> ACCEPTED -> WAITING_RESULT -> READY
+                                                        \-> REJECTED                   \-> FAILED
+                                                        \-> ACCEPTANCE_CONFLICT
+                                                                                       \-> RESULT_CONFLICT
+
+STATE_SYNC: NEW -> OUTBOX_PENDING -> BROKER_ACCEPTED
 ```
 
 说明：
 
+- `operation_kind` 至少区分 `INGESTION` 与 `STATE_SYNC`；`document_submitted` 以及未来被选为活动入库入口的 `CREATED/CONTENT_REPLACED` 使用前者，其他文件事实事件使用后者；
 - `OUTBOX_PENDING` 只表示事件待发送，不代表 Python 已接纳；
-- `WAITING_ACCEPTANCE` 只表示至少一次发送已得到 Broker 回执；
+- `WAITING_ACCEPTANCE` 只用于 `INGESTION`，表示至少一次发送已得到 Broker 回执；
 - `ACCEPTED` 必须来自合法 acceptance 事件，随后进入 `WAITING_RESULT`；
 - `REJECTED` 必须来自合法 rejection 事件，是接纳终态；
 - `ACCEPTANCE_CONFLICT` 必须来自合法 `CONFLICT` acceptance，表示同一 `operation_id` 对应不同事件哈希，必须人工处理；
 - `WAITING_RESULT` 表示 Python 已接纳但尚未返回入库终态；
 - 只有收到并持久化合法 `READY` 才能显示“RAG 入库完成”；
 - `FAILED` 是 Python 返回的终态；
-- `RESULT_CONFLICT` 表示同一操作收到不同终态，必须保留首份结果并报警，禁止后到覆盖先到。
+- `RESULT_CONFLICT` 表示同一操作收到不同终态，必须保留首份结果并报警，禁止后到覆盖先到；
+- `BROKER_ACCEPTED` 只用于 `STATE_SYNC`，只证明 Broker 接受了发送，不证明 RAG 已应用状态。若未来 Java 必须观察 RAG 应用终态，应另行版本化状态应用 ACK 合同，不能伪造 ingestion acceptance/result。
 
-### 9.2 `event_outbox`
+### 9.2 `event_outbox`（后续版本）
 
-未来在同一 PostgreSQL 事务中创建 operation 和不可变 Outbox payload。状态建议为 `PENDING/SENDING/SENT`；发送失败回到 `PENDING`，发送成功但标记 `SENT` 失败属于结果不确定，允许重复发送。
+未来必须在提交文件当前事实的同一个 PostgreSQL 事务中创建 RAG delivery operation 和不可变 Outbox payload/hash。至少保存 `event_id/operation_id/event_type/file_id/file_version/payload_json/payload_hash/status/created_at`；状态建议为 `PENDING/SENDING/SENT`。发送失败回到 `PENDING`，发送成功但标记 `SENT` 失败属于结果不确定，允许重复发送。Sender 只能读取已提交 Outbox，且不得重新查询当前 `file_record` 重建旧 payload。
 
 ### 9.3 `rag_result_inbox`
 
@@ -439,7 +446,7 @@ CREATED -> OUTBOX_PENDING -> WAITING_ACCEPTANCE -> ACCEPTED -> WAITING_RESULT ->
 
 完全相同的重复结果在数据库事务提交后 ACK；同一键不同 `payload_hash` 不覆盖首份结果，标记冲突并返回消费失败。这个边界与当前 RAG Java 模拟器一致：`test-support/java-result-consumer-simulator/consumer.py` 第 81-134 行。
 
-上述三表是后续接入设计，不属于 V0.1.0 Flyway 迁移范围。
+上述三表及任何文件事实 Outbox 都是后续接入设计，不属于 V0.1.0 Flyway 迁移范围。
 
 ## 10. ACK、重试和失败分类
 
@@ -492,8 +499,15 @@ CREATED -> OUTBOX_PENDING -> WAITING_ACCEPTANCE -> ACCEPTED -> WAITING_RESULT ->
 | result `READY` 带 `failure_code:null` | READY 必须完全省略失败键 |
 | result `FAILED` 只带一个 batch/generation ID | 两个身份必须同时出现或同时省略 |
 | 任意消息含重复 JSON 键、NaN 或数组顶层 | 违反严格 JSON Object 规则 |
+| file fact 使用未知版本/未知 `change_type`/额外字段 | 目标合同是严格封闭集合 |
+| file fact `file_version <= 0` | 文件事件版本必须为正整数 |
+| file fact `file_ref` 后缀与 `document_id` 不同 | 引用与内容身份不一致 |
+| `CONTENT_REPLACED` 缺 `previous_document_id` 或新旧 ID 相同 | 无法精确退役旧内容版本 |
+| `CREATED` 携带 `previous_document_id` | 创建分支不得伪装成替换 |
+| `DELETED` 携带 `file_ref` | 已删除事实不得继续暴露可读引用 |
+| `ENABLED/DISABLED` 的目标状态与 Body 不一致 | 变更类型与提交后事实冲突 |
 
-`contracts/rag` 已把正向和反向样例保存为固定 JSON 文件，并提供 `validate_contracts.py`、严格格式/扩展校验和 `SHA256SUMS.txt`。本次文档收口时该静态脚本已经执行通过；它只证明 Schema、固定样例和项目扩展的一致性。Java/Python 真实 DTO、严格 JSON 解码、RocketMQ 收发和跨服务联通仍为 `NOT_RUN`。
+`contracts/rag` 已把正向和反向样例保存为固定 JSON 文件，并提供 `validate_contracts.py`、严格重复键/格式/扩展/跨字段校验和 `SHA256SUMS.txt`。本次文档收口时该静态脚本输出 `SCHEMAS_OK=4`、`VALID_EXAMPLES_OK=14`、`INVALID_EXAMPLES_REJECTED=22`；它只证明当前 Schema、固定样例和项目扩展一致。Java/Python 真实 DTO、Transactional Outbox、RocketMQ 收发、RAG 状态应用和跨服务联通仍为 `NOT_RUN`。
 
 ## 12. 版本演进规则
 
@@ -504,6 +518,8 @@ CREATED -> OUTBOX_PENDING -> WAITING_ACCEPTANCE -> ACCEPTED -> WAITING_RESULT ->
 5. `file_ref` 自带 `v1`，新增生产引用方案时由新 Adapter 与新前缀承载；
 6. Topic、Tag 或 MessageGroup 改变会影响路由和顺序语义，必须单独 ADR；
 7. 合同样本和 JSON Schema 应在 Java 与 Python 仓库各保存一份，并用 SHA-256/跨语言测试防漂移；文档不是可执行锁。
+8. 严格的 `document_submitted v2` 不原地增加 `file_id/status`；新能力使用 `file_fact_changed v1` 独立 Tag 和 Schema。
+9. 未来启用新事件前必须选择并验证消费迁移策略，不能未经设计同时双发并造成重复入库。
 
 推荐发布次序：
 
@@ -517,16 +533,128 @@ CREATED -> OUTBOX_PENDING -> WAITING_ACCEPTANCE -> ACCEPTED -> WAITING_RESULT ->
 
 1. 锁定 Java/Python 依赖文件、Git 状态和相关源码哈希；
 2. 创建并读回两个 FIFO Topic 和两个有序 Consumer Group；
-3. Java intake 样本被当前 Python Pydantic 模型严格解析；
+3. Java intake 样本被当前 Python Pydantic 模型严格解析；Python 新模型能严格解析全部 `file_fact_changed` 分支并拒绝固定反例；
 4. Python acceptance 的 ACCEPTED/REJECTED/CONFLICT、最终 READY/FAILED 样本被 Java DTO 严格解析，省略/null 分支均覆盖；
 5. Java MinIO SDK 上传、Python MinIO Adapter 下载，文件名、媒体类型、字节数和 SHA-256 全部一致；
-6. 同 operation 同 payload 重投幂等；同 operation 不同 payload 冲突；
+6. 同 operation 同 payload 重投幂等；同 operation 不同 payload 冲突；同一 `file_id` 的低版本不覆盖高版本，替换后旧 `document_id` 不再作为当前版本；
 7. 结果重复投递只落一份；数据库提交失败前不 ACK；
 8. 至少完成一条 Java → RocketMQ → Python acceptance → MinIO → final result → Java 的真实链路并保存 message_id、operation_id 和数据库终态。
 
-V0.1.0 对以上各项的状态统一为 `NOT_RUN`。
+V0.1.0 对以上运行项的状态统一为 `NOT_RUN`；只有机器可读 Schema/样例静态验证为 `PASS`。
 
-## 14. 当前工作树证据哈希
+## 14. Java → Python：逻辑文件事实变更事件
+
+### 14.1 Envelope
+
+| 属性 | 固定值/规则 |
+|---|---|
+| Topic | `card_rag_doc_intake` |
+| Topic 类型 | FIFO |
+| Tag | `file_fact_changed` |
+| Keys | 恰好一个，等于 Body `operation_id` |
+| MessageGroup | 等于 Body 稳定逻辑 `file_id` |
+| Property `payload_hash` | 按本文第 7 节规范化 Body 后，对 UTF-8 字节计算 SHA-256 小写十六进制 |
+| Body | UTF-8 严格 JSON Object；`schema_version=1.0`；`event_type=file_fact_changed` |
+| V0.1.0 状态 | `CONTRACT_ONLY / NOT_SENT / NOT_RUN` |
+
+`operation_id` 是“一份已提交、不可变事件 payload”的唯一幂等身份。删除请求和删除完成是两个提交点，必须使用两个不同 `operation_id`；不能因为来自同一 HTTP 删除意图就让两份不同 payload 共用一个幂等键。需要命令级关联时应在后续合同版本增加独立关联字段，不能重载本字段语义。
+
+本字段不得直接复用 LLD-001、LLD-002 和 ADR-004 中的内部 `file_workflow_id`。该内部 ID 关联一次文件业务流程；涉及对象存储时，可以跨 TX1、事务外对象操作和 TX2 保持不变。MQ `operation_id` 每个已提交事件一值。一个内部流程若先后提交 `DELETE_REQUESTED`、`DELETED`，或提交不同的失败/成功事实，必须为每份不同 payload 生成不同的消息 `operation_id`。两者需要关联时使用内部表关系、日志字段，或在后续 Schema 版本新增独立关联字段。
+
+MessageGroup 使用 `file_id`，因为它在内容替换前后保持不变。旧 `document_submitted` 使用会随替换变化的 `document_id=reference_id`，不能保证同一逻辑文件跨版本顺序。
+
+### 14.2 公共字段
+
+| 字段 | 类型/规则 | 语义 |
+|---|---|---|
+| `schema_version` | string，固定 `"1.0"` | Body 合同版本 |
+| `event_type` | string，固定 `"file_fact_changed"` | 必须与 Tag 一致 |
+| `operation_id` | 32 位小写十六进制 | 单份不可变事件及重投幂等身份 |
+| `change_type` | 八值枚举 | 本次提交改变了什么 |
+| `file_id` | 32 位小写十六进制 | 替换前后不变的逻辑文件身份 |
+| `file_version` | 正整数 | 取该事件对应已提交 `file_record.row_version`；同一 `file_id` 单调增加，允许不连续 |
+| `lifecycle_status` | `ACTIVE/DELETING/DELETED/FAILED` | 事件提交后的系统生命周期；中间 `UPLOADING/REPLACING` 不对 RAG 发布 |
+| `availability_status` | `ENABLED/DISABLED` | 事件提交后的人工可用状态；RAG 的有效可用条件仍是 `ACTIVE + ENABLED` |
+| `original_name` | 1..255 字符，无控制字符/首尾空白 | 当前业务元数据 |
+| `display_name` | 1..255 字符，无控制字符/首尾空白 | 当前展示元数据 |
+| `changed_at` | 带时区 RFC 3339，小数秒最多 6 位 | 数据库事实提交时间 |
+
+可读内容字段为 `document_id/file_ref/media_type/size_bytes/content_sha256`。其中 `document_id` 等于当前内容 `reference_id`，`file_ref` 必须精确等于 `local-file-ref:v1:<document_id>`。`DISABLED` 事件仍携带当前不可变内容事实，供 RAG 识别已有版本；RAG 不得因存在 `file_ref` 就忽略状态并继续对外提供内容。
+
+### 14.3 严格分支
+
+| `change_type` | 生命周期/可用状态约束 | 内容字段 | `previous_document_id` |
+|---|---|---|---|
+| `CREATED` | `ACTIVE + ENABLED` | 全部必填 | 必须省略 |
+| `CONTENT_REPLACED` | `ACTIVE`，可用状态保留原值 | 全部必填 | 必填，且与新 `document_id` 不同 |
+| `METADATA_UPDATED` | `ACTIVE` | 全部必填 | 必须省略 |
+| `ENABLED` | `ACTIVE + ENABLED` | 全部必填 | 必须省略 |
+| `DISABLED` | `ACTIVE + DISABLED` | 全部必填 | 必须省略 |
+| `DELETE_REQUESTED` | `DELETING` | 只要求最后 `document_id`；必须省略 `file_ref/media_type/size_bytes/content_sha256` | 必须省略 |
+| `DELETED` | `DELETED` | 只要求最后 `document_id`；必须省略可读内容字段 | 必须省略 |
+| `FAILED` | `FAILED` | `document_id` 可省略；必须省略可读引用和内容字段 | 必须省略 |
+
+所有分支拒绝未知字段、重复 JSON 键、未知版本、未知变更类型、非法时间和非法 ID。MQ Body 不得出现 Bucket、Object Key、Endpoint、AccessKey、SecretKey、预签名 URL 或文件字节。
+
+### 14.4 `CONTENT_REPLACED` 样例
+
+```json
+{
+  "availability_status": "ENABLED",
+  "change_type": "CONTENT_REPLACED",
+  "changed_at": "2026-09-03T08:10:00.000Z",
+  "content_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "display_name": "信用卡产品说明.pdf",
+  "document_id": "319f011f196e49a28583b904b90e0b1e",
+  "event_type": "file_fact_changed",
+  "file_id": "5ca94af456ee42e28729cd0555a28d01",
+  "file_ref": "local-file-ref:v1:319f011f196e49a28583b904b90e0b1e",
+  "file_version": 5,
+  "lifecycle_status": "ACTIVE",
+  "media_type": "application/pdf",
+  "operation_id": "22222222222222222222222222222222",
+  "original_name": "信用卡产品说明.pdf",
+  "previous_document_id": "3ce0160ab3c3498e9be690ab28c0d78b",
+  "schema_version": "1.0",
+  "size_bytes": 1048576
+}
+```
+
+机器可读权威文件为 `contracts/rag/file-fact-changed-v1.schema.json` 及 `examples/file-fact-changed.*.json`，本节只解释语义。
+
+## 15. RAG 侧顺序、幂等与当前状态规则（目标合同）
+
+RAG 后续消费者必须按以下次序处理：
+
+1. 严格校验 Envelope、UTF-8 JSON、重复键、Schema 条件分支和规范 payload hash；
+2. 以 `operation_id` 查 Inbox：同 payload 重投可 ACK，不同 payload 记冲突且不得覆盖；
+3. 以 `file_id` 读取最后应用版本：小于最后版本的是陈旧事件，记录后忽略；等于最后版本且不是同一幂等事件属于冲突；大于最后版本才能继续；
+4. 在 RAG 自己的本地事务中应用当前逻辑文件事实并保存新版本；事务提交后才 ACK；
+5. `CONTENT_REPLACED` 同一事务中把 `previous_document_id` 退出当前可用集合，并登记新 `document_id`；`DISABLED/DELETE_REQUESTED/DELETED/FAILED` 必须使逻辑文件不可用于检索或回答；只有 `ACTIVE + ENABLED` 可以恢复可用。
+
+当后续版本明确选择 `file_fact_changed` 作为活动入库入口时，只有 `CREATED` 和 `CONTENT_REPLACED` 可以启动文档 ingestion，并产生与该内容事件对应的 `document_ingestion_acceptance` 和 `document_ingestion_result`。`METADATA_UPDATED/ENABLED/DISABLED/DELETE_REQUESTED/DELETED/FAILED` 只应用逻辑文件与状态事实，不得伪造 ingestion acceptance/result；需要重新入库时必须由另行冻结的内容提交命令触发。当前 Python 尚未实现新 Tag 消费、上述路由或状态应用，全部为 `NOT_IMPLEMENTED / NOT_RUN`。
+
+FIFO MessageGroup 提供同组有序投递条件，但不能替代消费者版本检查、Inbox 幂等和本地事务。上述行为当前 Python 尚未实现，V0.1.0 不能把 Schema PASS 表述为 RAG 状态同步 PASS。
+
+## 16. Java 未来 Transactional Outbox 提交点
+
+| Java 已提交事实 | 同一 PostgreSQL 事务必须冻结的 `change_type` |
+|---|---|
+| 首次上传 TX2，内容事实生效并转 `ACTIVE` | `CREATED` |
+| 元数据 PATCH 提交 | `METADATA_UPDATED` |
+| 可用状态实际变化提交 | `ENABLED` 或 `DISABLED` |
+| 替换 TX2 原子切换新 `reference_id` | `CONTENT_REPLACED`，同时冻结新旧 `document_id` |
+| 删除 TX1 转 `DELETING` | `DELETE_REQUESTED` |
+| 删除 TX2 转 `DELETED` | `DELETED` |
+| 任一工作流安全地提交 `FAILED` | `FAILED` |
+
+每个提交点必须在同一 PostgreSQL 本地事务内写 `file_record`、必要的 `file_status_history`、RAG delivery operation 和完整不可变 Outbox payload/hash；任一写入失败则全部回滚。Sender 在提交后异步发送，结果不确定时重发同一 Outbox 字节，禁止读取较新的文件快照重建旧版本事件。
+
+此处 Outbox 的 `operation_id` 是消息事件 ID；LLD-002 的 `file_workflow_id` 是内部文件流程 ID。实现必须分别建模并建立关联，禁止让跨 TX1/TX2 复用的 `file_workflow_id` 代替多个事件的 `operation_id`。
+
+这不是 PostgreSQL、MinIO、RocketMQ 三方分布式事务。MinIO 上传仍发生在 LLD-002 的 TX1 与 TX2 之间，只有 TX2 切换成功后的内容才能生成 `CREATED/CONTENT_REPLACED`；候选对象和 `REPLACING` 中间态不得发布。V0.1.0 不创建上述 operation/Outbox/Inbox 表，不引入 RocketMQ SDK，不建立 Topic/Group，也不运行 Sender/Consumer。
+
+## 17. 当前工作树证据哈希
 
 以下 SHA-256 用于说明本文实际读取了哪一份未提交工作树内容；后续漂移时必须重新核对：
 
