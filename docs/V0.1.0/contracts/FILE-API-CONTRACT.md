@@ -31,20 +31,94 @@
 
 ## 3. 接口索引
 
-| 操作 ID | 方法与路径 | 请求 | 已冻结成功语义 | 主要需求 |
-|---|---|---|---|---|
-| `FILE-UPLOAD` | `POST /api/v1/files` | multipart：`file` 必填，`displayName` 可选 | `201 Created`；文件记录与对象完成后返回 `ACTIVE` 文件视图 | `FR-FILE-001`～`003`、`015` |
-| `FILE-LIST` | `GET /api/v1/files` | `page`、`pageSize`、`name`、`lifecycleStatus`、`availabilityStatus`、`mediaType`、`createdFrom`、`createdTo` | `200 OK`；稳定分页，默认只返回 `ACTIVE + ENABLED` | `FR-FILE-004`、`012`、`016` |
-| `FILE-DETAIL` | `GET /api/v1/files/{fileId}` | 路径参数 `fileId` | `200 OK`；返回两个状态；`REPLACING` 的内容字段仍指向旧的已提交事实，不暴露候选对象 | `FR-FILE-005`、`012`、`016` |
-| `FILE-DOWNLOAD` | `GET /api/v1/files/{fileId}/content` | 路径参数 `fileId` | `200 OK` 字节流；仅 `ENABLED` 且生命周期为 `ACTIVE/REPLACING` 时下载当前已提交对象 | `FR-FILE-006`、`010`、`012`、`016` |
-| `FILE-METADATA-PATCH` | `PATCH /api/v1/files/{fileId}` | JSON：`displayName`、`remark`、`expectedVersion` | 更新可编辑元数据并递增版本；精确成功响应体/状态码待 OpenAPI 冻结 | `FR-FILE-007` |
-| `FILE-CONTENT-REPLACE` | `PUT /api/v1/files/{fileId}/content` | multipart：完整 `file`、`expectedVersion` | 保持 `fileId` 和可用状态，使用新内容引用原子切换；精确成功响应体/状态码待 OpenAPI 冻结 | `FR-FILE-008`、`011`、`019` |
-| `FILE-AVAILABILITY-PATCH` | `PATCH /api/v1/files/{fileId}/availability` | JSON：`targetStatus`、`reason`、`expectedVersion` | `200 OK`；仅 `ACTIVE` 可执行，状态与历史同事务提交 | `FR-FILE-016` |
-| `FILE-RECOVERY-RETRY` | `POST /api/v1/files/{fileId}/actions/retry-recovery` | JSON：`reason`、`expectedVersion` | `202 Accepted`；只重新排队已有恢复事实，不直接改变 `FAILED` | `FR-FILE-018` |
-| `FILE-STATUS-HISTORY` | `GET /api/v1/files/{fileId}/status-history` | `page`、`pageSize` | `200 OK`；按 `changed_at DESC, history_id DESC` 稳定分页 | `FR-FILE-017` |
-| `FILE-DELETE` | `DELETE /api/v1/files/{fileId}?expectedVersion={version}` | 路径参数和查询参数 | `204 No Content`；重复删除语义稳定，清理失败进入可重试状态 | `FR-FILE-009`、`011` |
+| 操作 ID | 方法与路径 | 功能说明 | 请求 | 已冻结成功语义 | 主要需求 |
+|---|---|---|---|---|---|
+| `FILE-UPLOAD` | `POST /api/v1/files` | 创建一个新的逻辑文件和首个内容版本；一次请求只上传一个文件 | multipart：`file` 必填，`displayName` 可选 | `201 Created`；文件记录与对象完成后返回 `ACTIVE` 文件视图 | `FR-FILE-001`～`003`、`015` |
+| `FILE-LIST` | `GET /api/v1/files` | 分页查找文件概要，供文件管理页面展示和筛选 | `page`、`pageSize`、`name`、`lifecycleStatus`、`availabilityStatus`、`mediaType`、`createdFrom`、`createdTo` | `200 OK`；稳定分页，默认只返回 `ACTIVE + ENABLED` | `FR-FILE-004`、`012`、`016` |
+| `FILE-DETAIL` | `GET /api/v1/files/{fileId}` | 查询单个文件的元数据、生命周期、可用状态和当前已提交内容事实；不返回文件字节 | 路径参数 `fileId` | `200 OK`；返回两个状态；`REPLACING` 的内容字段仍指向旧的已提交事实，不暴露候选对象 | `FR-FILE-005`、`012`、`016` |
+| `FILE-DOWNLOAD` | `GET /api/v1/files/{fileId}/content` | 流式下载当前已提交的文件字节 | 路径参数 `fileId` | `200 OK` 字节流；仅 `ENABLED` 且生命周期为 `ACTIVE/REPLACING` 时下载当前已提交对象 | `FR-FILE-006`、`010`、`012`、`016` |
+| `FILE-METADATA-PATCH` | `PATCH /api/v1/files/{fileId}` | 修改展示名和备注，不修改文件正文 | JSON：`displayName`、`remark`、`expectedVersion` | 更新可编辑元数据并递增版本；精确成功响应体/状态码待 OpenAPI 冻结 | `FR-FILE-007` |
+| `FILE-CONTENT-REPLACE` | `PUT /api/v1/files/{fileId}/content` | 上传一份完整新文件，替换同一逻辑文件的当前正文 | multipart：完整 `file`、`expectedVersion` | 保持 `fileId` 和可用状态，使用新内容引用原子切换；精确成功响应体/状态码待 OpenAPI 冻结 | `FR-FILE-008`、`011`、`019` |
+| `FILE-AVAILABILITY-PATCH` | `PATCH /api/v1/files/{fileId}/availability` | 启用或停用文件，控制默认列表、下载及未来 RAG 使用资格 | JSON：`targetStatus`、`reason`、`expectedVersion` | `200 OK`；仅 `ACTIVE` 可执行，状态与历史同事务提交 | `FR-FILE-016` |
+| `FILE-RECOVERY-RETRY` | `POST /api/v1/files/{fileId}/actions/retry-recovery` | 为失败文件重新排队已有恢复任务，供后台重新核对并收敛状态 | JSON：`reason`、`expectedVersion` | `202 Accepted`；只重新排队已有恢复事实，不直接改变 `FAILED` | `FR-FILE-018` |
+| `FILE-STATUS-HISTORY` | `GET /api/v1/files/{fileId}/status-history` | 分页查询生命周期和人工可用状态的变化记录 | `page`、`pageSize` | `200 OK`；按 `changed_at DESC, history_id DESC` 稳定分页 | `FR-FILE-017` |
+| `FILE-DELETE` | `DELETE /api/v1/files/{fileId}?expectedVersion={version}` | 发起幂等业务删除，使文件立即不可下载并由工作流清理对象 | 路径参数和查询参数 | `204 No Content`；重复删除语义稳定，清理失败进入可重试状态 | `FR-FILE-009`、`011` |
 
 “待 OpenAPI 冻结”表示当前设计没有足够依据确定该细节。实现者必须先回填契约并评审，不能自行选择后又把选择描述成原始需求。
+
+### 3.1 接口功能详解
+
+以下说明面向 HTTP 调用方，用于回答每个接口“做什么、会改变什么、什么状态可调用、明确不做什么”。内部事务和补偿时序仍以 LLD-001、LLD-002 为准。
+
+#### 3.1.1 `POST /api/v1/files`：上传并创建文件
+
+- **业务用途：** 创建一个全新的逻辑文件及其首个内容版本。适用于用户从本机选择文件后首次录入文件中心。
+- **主要副作用：** PostgreSQL 建立文件记录、状态历史和恢复事实，MinIO 写入新的私有对象；全部成功后返回 `ACTIVE + ENABLED` 文件视图。
+- **输入限制：** 一个 multipart 请求只接受一个必填 `file`，可附带 `displayName`；空文件、超限文件和不支持的类型被拒绝。
+- **明确不做：** 不提供批量上传；同名上传会创建不同 `fileId` 和对象，不按文件名覆盖已有文件；不把原始文件名直接用作 Object Key。
+
+#### 3.1.2 `GET /api/v1/files`：分页查询文件列表
+
+- **业务用途：** 为文件管理页面提供概要列表，并按名称、双状态、媒体类型和创建时间筛选。
+- **读取范围：** 读取 PostgreSQL 中的文件概要，按 `created_at DESC, file_id DESC` 稳定分页；未显式传状态条件时只返回 `ACTIVE + ENABLED`。
+- **主要副作用：** 无，只读接口。
+- **明确不做：** 不返回文件字节、MinIO Object Key、Bucket、Endpoint 或凭据；也不把全部结果一次性无分页返回。
+
+#### 3.1.3 `GET /api/v1/files/{fileId}`：查询文件详情
+
+- **业务用途：** 查看单个逻辑文件的元数据、生命周期、人工可用状态、并发版本和当前已提交内容事实。
+- **状态规则：** 已明确支持查询 `ACTIVE` 和 `REPLACING`；`DISABLED` 文件仍可通过该受控接口查看。`REPLACING` 时内容字段继续指向旧的已提交对象；不存在或已删除返回 `404`。
+- **主要副作用：** 无，只读接口。
+- **明确不做：** 不返回文件正文，不暴露正在上传的候选对象，也不返回内部存储定位或凭据。
+
+#### 3.1.4 `GET /api/v1/files/{fileId}/content`：下载文件正文
+
+- **业务用途：** 将当前已提交文件从 MinIO 经 Java 服务流式返回给调用方。
+- **状态规则：** 只允许 `availabilityStatus=ENABLED` 且生命周期为 `ACTIVE` 或 `REPLACING`；`REPLACING` 时下载旧的已提交对象。`DISABLED` 或其他生命周期返回 `FILE_STATE_CONFLICT`。
+- **主要副作用：** 无业务数据修改，只读取 PostgreSQL 当前内容事实并打开 MinIO 对象流。
+- **明确不做：** 不读取未提交候选对象，不把任意大小文件整体装入 JVM `byte[]`，不向调用方返回 MinIO 凭据或长期公开 URL。
+
+#### 3.1.5 `PATCH /api/v1/files/{fileId}`：修改文件元数据
+
+- **业务用途：** 修改文件展示名和备注，适用于文件内容不变的说明性维护。
+- **状态规则：** 仅生命周期为 `ACTIVE` 时允许，`ENABLED` 和 `DISABLED` 均可维护；请求必须带当前 `expectedVersion`。
+- **主要副作用：** 在 PostgreSQL 更新 `display_name/remark` 并递增并发版本；过期版本返回 `FILE_VERSION_CONFLICT`。
+- **明确不做：** 不改变原始文件名、媒体类型、文件字节、SHA-256、ETag、对象引用、生命周期或可用状态。
+
+#### 3.1.6 `PUT /api/v1/files/{fileId}/content`：完整替换文件正文
+
+- **业务用途：** 用户在本机完成编辑后，上传一份完整新文件替换现有正文，同时保留同一个逻辑 `fileId`。
+- **状态规则：** 目标生命周期必须是 `ACTIVE`，`ENABLED` 和 `DISABLED` 均可替换；请求必须带当前 `expectedVersion`。替换期间文件进入 `REPLACING`。
+- **主要副作用：** 为新内容生成新的 `reference_id/object_key`，流式写入 MinIO，计算新内容事实，再通过 PostgreSQL 乐观锁原子切换当前引用；成功后清理旧对象，清理失败进入持久重试。
+- **明确不做：** 不支持页、段落、单元格、文本片段或字节范围的在线增量编辑；不原地覆盖旧 Object Key；不改变 `displayName/remark/availabilityStatus`，原文件为 `DISABLED` 时替换后仍为 `DISABLED`。
+
+#### 3.1.7 `PATCH /api/v1/files/{fileId}/availability`：启用或停用文件
+
+- **业务用途：** 在不删除文件的前提下，控制它是否出现在默认列表、能否下载，以及未来是否可被 RAG 当作有效知识使用。
+- **状态规则：** 只允许生命周期为 `ACTIVE` 的文件；请求必须包含 `ENABLED/DISABLED` 目标值、非空原因和当前 `expectedVersion`。
+- **主要副作用：** PostgreSQL 在同一事务更新可用状态、递增版本并写入状态历史。目标值与当前值相同且版本匹配时返回当前视图，不新增历史、不递增版本。
+- **明确不做：** 不删除 PostgreSQL 记录或 MinIO 对象，不修改生命周期和文件正文，也不允许调用方借此把文件直接改成任意生命周期。
+
+#### 3.1.8 `POST /api/v1/files/{fileId}/actions/retry-recovery`：请求重试失败恢复
+
+- **业务用途：** 对需要人工介入的失败文件，重新排队系统已经持久化的恢复任务。
+- **状态规则：** 仅接受 `FAILED` 且存在可重试持久任务的文件；请求必须包含原因和当前 `expectedVersion`，否则返回状态或版本冲突。
+- **主要副作用：** 在同一 PostgreSQL 事务把恢复任务重置为 `PENDING`、递增文件版本并记录 `FAILED → FAILED` 的请求历史，返回 `202 Accepted`。
+- **明确不做：** 接口本身不直接把文件改为 `ACTIVE`；最终状态只能由 `FileReconcileService` 核对 PostgreSQL 与 MinIO 事实后提交。
+
+#### 3.1.9 `GET /api/v1/files/{fileId}/status-history`：查询状态历史
+
+- **业务用途：** 审计文件生命周期和人工可用状态如何变化，并辅助定位失败及人工操作原因。
+- **读取范围：** 从 PostgreSQL 分页返回前值、后值、状态维度、原因、操作者、请求 ID、提交后版本和变更时间，排序固定为 `changed_at DESC, history_id DESC`。
+- **主要副作用：** 无，只读接口。
+- **明确不做：** 不改变文件状态，不返回文件正文、Object Key、Bucket、凭据或异常堆栈。
+
+#### 3.1.10 `DELETE /api/v1/files/{fileId}`：幂等删除文件
+
+- **业务用途：** 发起文件业务删除，使文件立即失去下载资格，并通过可恢复工作流清理 MinIO 对象。
+- **状态规则：** 允许删除 `ACTIVE + ENABLED/DISABLED` 文件并校验 `expectedVersion`；对已经处于 `DELETING/DELETED` 的同一文件重复调用仍可返回 `204`。
+- **主要副作用：** 生命周期由 `ACTIVE → DELETING → DELETED`，进入 `DELETING` 后立即不可下载；对象清理失败时持久重试。
+- **明确不做：** 不把一次 MinIO 删除失败伪装成已彻底清理，也不物理删除 PostgreSQL 墓碑记录。
 
 ## 4. 已冻结的公共文件视图
 
